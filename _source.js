@@ -1,0 +1,408 @@
+javascript:(function(){
+    let wakeLock = null;
+    async function requestWakeLock() {
+        try {
+            if ('wakeLock' in navigator) {
+                wakeLock = await navigator.wakeLock.request('screen');
+            }
+        } catch (err) { console.warn('Wake Lockの起動に失敗しました:', err); }
+    }
+    function releaseWakeLock() {
+        if (wakeLock !== null) { wakeLock.release().then(() => wakeLock = null); }
+    }
+
+    const style = document.createElement('style');
+    style.innerHTML = `
+        #x-del-modal {
+            position: fixed; top: 5%; left: 50%; transform: translateX(-50%);
+            z-index: 99999;
+            background: #d4d0c8;
+            color: #000;
+            font-family: "MS UI Gothic", "ＭＳ Ｐゴシック", "MS Gothic", sans-serif;
+            font-size: 12px;
+            width: 380px;
+            max-height: 90vh;
+            overflow: hidden;
+            border: 2px solid;
+            border-color: #ffffff #808080 #808080 #ffffff;
+            box-shadow: 3px 3px 8px rgba(0,0,0,0.6);
+        }
+        #x-del-titlebar {
+            background: linear-gradient(to right, #0a246a 0%, #3a6fca 55%, #a6caf0 100%);
+            color: #fff;
+            padding: 3px 4px 3px 8px;
+            font-size: 12px;
+            font-weight: bold;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            user-select: none;
+        }
+        #x-del-titlebar span { display: flex; align-items: center; gap: 5px; }
+        #btn-title-close {
+            background: #d4d0c8;
+            border: 2px solid;
+            border-color: #ffffff #808080 #808080 #ffffff;
+            color: #000;
+            width: 18px; height: 16px;
+            font-size: 10px;
+            font-weight: bold;
+            cursor: pointer;
+            padding: 0;
+            line-height: 1;
+            font-family: "MS UI Gothic", sans-serif;
+        }
+        #x-del-content {
+            padding: 10px;
+            overflow-y: auto;
+            max-height: calc(90vh - 24px);
+        }
+        .grp {
+            border: 2px groove #c0c0c0;
+            padding: 10px 8px 8px 8px;
+            margin-bottom: 10px;
+            position: relative;
+        }
+        .grp-label {
+            position: absolute;
+            top: -8px; left: 6px;
+            background: #d4d0c8;
+            padding: 0 4px;
+            font-size: 11px;
+            font-weight: bold;
+        }
+        .chk-item {
+            display: flex; align-items: center;
+            margin: 6px 0;
+            font-size: 12px;
+            cursor: pointer;
+        }
+        .chk-item input { width: 13px; height: 13px; margin-right: 7px; cursor: pointer; }
+        .win-input {
+            width: 100%; padding: 3px 5px;
+            box-sizing: border-box;
+            border: 2px solid;
+            border-color: #808080 #dfdfdf #dfdfdf #808080;
+            background: #fff;
+            font-family: "MS UI Gothic", "ＭＳ Ｐゴシック", sans-serif;
+            font-size: 11px;
+            color: #000;
+            margin-top: 5px;
+        }
+        .sub {
+            color: #555;
+            font-size: 10px;
+            margin-top: 3px;
+            display: block;
+            line-height: 1.5;
+        }
+        .btn-row {
+            display: flex;
+            justify-content: flex-end;
+            gap: 6px;
+            margin-top: 10px;
+        }
+        .win-btn {
+            background: #d4d0c8;
+            border: 2px solid;
+            border-color: #ffffff #808080 #808080 #ffffff;
+            color: #000;
+            font-family: "MS UI Gothic", "ＭＳ Ｐゴシック", sans-serif;
+            font-size: 12px;
+            padding: 4px 14px;
+            cursor: pointer;
+            min-width: 85px;
+        }
+        .win-btn-default { outline: 1px solid #000; outline-offset: 1px; }
+        #x-del-shield {
+            position: fixed; top: 0; left: 0;
+            width: 100vw; height: 100vh;
+            background: rgba(0,0,0,0.5);
+            z-index: 99998;
+            pointer-events: auto;
+            display: flex; align-items: center; justify-content: center;
+            font-family: "MS UI Gothic", "ＭＳ Ｐゴシック", sans-serif;
+        }
+        #x-del-status-board {
+            background: #d4d0c8;
+            border: 2px solid;
+            border-color: #ffffff #808080 #808080 #ffffff;
+            box-shadow: 3px 3px 8px rgba(0,0,0,0.6);
+            width: 360px;
+            overflow: hidden;
+            pointer-events: auto;
+        }
+        #sb-titlebar {
+            background: linear-gradient(to right, #0a246a 0%, #3a6fca 55%, #a6caf0 100%);
+            color: #fff;
+            padding: 3px 8px;
+            font-size: 12px;
+            font-weight: bold;
+        }
+        #sb-content { padding: 14px 16px; text-align: center; }
+        .sb-label { font-size: 11px; color: #444; margin-bottom: 2px; }
+        .sb-count { font-size: 30px; font-weight: bold; color: #000080; margin: 4px 0 10px; }
+        .sb-msg {
+            font-size: 11px; color: #000;
+            min-height: 36px;
+            border: 2px solid;
+            border-color: #808080 #dfdfdf #dfdfdf #808080;
+            background: #fff;
+            padding: 5px 7px;
+            text-align: left;
+            margin-bottom: 12px;
+            white-space: pre-wrap;
+        }
+    `;
+    document.head.appendChild(style);
+
+    const container = document.createElement('div');
+    container.id = 'x-del-modal';
+
+    container.innerHTML = `
+        <div id="x-del-titlebar">
+            <span>&#128193; ツイート削除ユーティリティ v1.0</span>
+            <button id="btn-title-close">&#10005;</button>
+        </div>
+        <div id="x-del-content">
+            <div class="grp">
+                <span class="grp-label">削除対象の選択</span>
+                <label class="chk-item"><input type="checkbox" id="del-posts" checked> 自分のツイート</label>
+                <label class="chk-item"><input type="checkbox" id="del-reposts" checked> RT（リツイート）</label>
+                <label class="chk-item"><input type="checkbox" id="del-likes" checked> お気に入り（いいね）</label>
+            </div>
+            <div class="grp">
+                <span class="grp-label">削除対象キーワード（優先）</span>
+                <span class="sub">※指定したキーワードを含むツイートを優先的に削除します<br>（保護条件よりも優先されます）</span>
+                <input type="text" class="win-input" id="delete-keywords" placeholder="キーワードをカンマ区切りで入力">
+            </div>
+            <div class="grp">
+                <span class="grp-label">保護キーワード（削除除外）</span>
+                <span class="sub">※このキーワードを含むツイートは削除しません<br>空欄の場合、この条件は適用されません</span>
+                <input type="text" class="win-input" id="keep-keywords" placeholder="キーワードをカンマ区切りで入力">
+            </div>
+            <div class="grp">
+                <span class="grp-label">お気に入り数による保護</span>
+                <span class="sub">※指定数以上お気に入りが付いたツイートは削除しません<br>0のままにすると、この条件は適用されません</span>
+                <input type="number" class="win-input" id="keep-likes-count" value="0" min="0">
+            </div>
+            <div class="grp">
+                <span class="grp-label">ツイートIDによる保護</span>
+                <span class="sub">※ツイートURLの末尾の数字を入力してください（カンマ区切り）</span>
+                <input type="text" class="win-input" id="keep-ids" placeholder="例：1234567890123456789">
+            </div>
+            <div class="btn-row">
+                <button id="btn-start" class="win-btn win-btn-default">実行する(E)</button>
+                <button id="btn-cancel" class="win-btn">キャンセル(C)</button>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(container);
+
+    document.getElementById('btn-title-close').onclick = () => { container.remove(); style.remove(); };
+    document.getElementById('btn-cancel').onclick = () => { container.remove(); style.remove(); };
+    document.getElementById('btn-start').onclick = () => {
+        const config = {
+            posts: document.getElementById('del-posts').checked,
+            reposts: document.getElementById('del-reposts').checked,
+            likes: document.getElementById('del-likes').checked,
+            deleteKeywords: document.getElementById('delete-keywords').value.split(',').map(k => k.trim()).filter(k => k !== ''),
+            keywords: document.getElementById('keep-keywords').value.split(',').map(k => k.trim()).filter(k => k !== ''),
+            minLikes: parseInt(document.getElementById('keep-likes-count').value, 10) || 0,
+            ids: document.getElementById('keep-ids').value.split(',').map(id => id.trim()).filter(id => id !== '')
+        };
+
+        if (!config.posts && !config.reposts && !config.likes) {
+            alert('削除対象を少なくとも1つ選択してください。');
+            return;
+        }
+
+        const targetStr = [config.posts ? '自分のツイート' : '', config.reposts ? 'RT（リツイート）' : '', config.likes ? 'お気に入り（いいね）' : ''].filter(Boolean).join('、');
+        const deleteStr = config.deleteKeywords.length ? `・削除キーワード: ${config.deleteKeywords.join(', ')}` : '';
+        const protectStr = [
+            config.keywords.length ? `・保護キーワード: ${config.keywords.join(', ')}` : '',
+            config.minLikes > 0 ? `・お気に入り数: ${config.minLikes}件以上` : '',
+            config.ids.length ? `・保護ID: ${config.ids.join(', ')}` : ''
+        ].filter(Boolean).join('\n') || 'なし';
+
+        const isConfirmed = confirm(
+            `【実行確認】\n\n` +
+            `▼ 削除対象:\n  ${targetStr}\n\n` +
+            (deleteStr ? `▼ 削除キーワード（優先適用）:\n  ${deleteStr}\n\n` : '') +
+            `▼ 保護（除外）条件:\n${protectStr}\n\n` +
+            `上記の設定で自動削除を開始します。よろしいですか？\n` +
+            `（実行中は誤操作防止シールドが展開されます）`
+        );
+
+        if (isConfirmed) {
+            container.remove();
+            startCleanup(config);
+        }
+    };
+
+    async function startCleanup(config) {
+        await requestWakeLock();
+
+        const shield = document.createElement('div');
+        shield.id = 'x-del-shield';
+        shield.innerHTML = `
+            <div id="x-del-status-board">
+                <div id="sb-titlebar">ツイート削除ユーティリティ - 実行中</div>
+                <div id="sb-content">
+                    <div class="sb-label">削除済み件数</div>
+                    <div id="sb-count" class="sb-count">0</div>
+                    <div id="sb-msg" class="sb-msg">初期化中...</div>
+                    <button id="btn-abort" class="win-btn">中断する(S)</button>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(shield);
+
+        let actionCount = 0;
+        let isAborted = false;
+        document.getElementById('btn-abort').onclick = () => { isAborted = true; };
+
+        const updateUI = (msg) => {
+            document.getElementById('sb-count').innerText = actionCount;
+            document.getElementById('sb-msg').innerText = msg;
+        };
+
+        const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+        const getRandomDelay = (min, max) => Math.floor(Math.random() * (max - min + 1)) + min;
+
+        const countdownWait = async (seconds, baseMsg) => {
+            for (let i = seconds; i > 0; i--) {
+                if (isAborted) return;
+                updateUI(`${baseMsg}\n残り約 ${i} 秒`);
+                await sleep(1000);
+            }
+        };
+
+        while (true) {
+            if (isAborted) { updateUI('中断処理を実行しました。お疲れ様でした。'); break; }
+
+            if (actionCount >= 500) {
+                alert('処理件数が500件に達したため、自動停止しました。\n本日の作業はここまでにしてください。\nページをリロード後、再度ご利用いただけます。');
+                break;
+            }
+
+            if (actionCount > 0 && actionCount % 200 === 0) {
+                const longWait = getRandomDelay(600, 900);
+                await countdownWait(longWait, '【長期休止中】規制回避のため10〜15分間待機しています。\nしばらくそのままお待ちください。');
+            } else if (actionCount > 0 && actionCount % 50 === 0) {
+                const shortWait = getRandomDelay(120, 180);
+                await countdownWait(shortWait, '【短期休止中】規制回避のため2〜3分間待機しています。\nしばらくそのままお待ちください。');
+            }
+
+            if (isAborted) break;
+
+            if (Math.random() < 0.20) {
+                updateUI('待機中（アクセス間隔を調整しています）...');
+                window.scrollBy({ top: getRandomDelay(200, 500), behavior: 'smooth' });
+                await sleep(getRandomDelay(2000, 5000));
+                window.scrollBy({ top: getRandomDelay(-100, -300), behavior: 'smooth' });
+                await sleep(getRandomDelay(1500, 3000));
+            }
+
+            const articles = Array.from(document.querySelectorAll('article[data-testid="tweet"]'));
+            if (articles.length === 0) {
+                updateUI('ツイートを検索しています...\nしばらくお待ちください。');
+                window.scrollBy({ top: 500, behavior: 'smooth' });
+                await sleep(3000);
+                continue;
+            }
+
+            let processedInLoop = false;
+
+            for (const article of articles) {
+                if (isAborted) break;
+                const textContent = article.innerText || '';
+
+                const links = Array.from(article.querySelectorAll('a[href*="/status/"]'));
+                let tweetId = '';
+                if (links.length > 0) {
+                    const match = links[0].href.match(/status\/(\d+)/);
+                    if (match) tweetId = match[1];
+                }
+
+                const likeIconBtn = article.querySelector('div[data-testid="like"]') || article.querySelector('div[data-testid="unlike"]');
+                let currentLikes = 0;
+                if (likeIconBtn) {
+                    const text = likeIconBtn.innerText || '0';
+                    if (text.includes('K')) currentLikes = parseFloat(text) * 1000;
+                    else if (text.includes('M')) currentLikes = parseFloat(text) * 1000000;
+                    else currentLikes = parseInt(text.replace(/[^0-9]/g, ''), 10) || 0;
+                }
+
+                if (config.deleteKeywords.length > 0) {
+                    if (!config.deleteKeywords.some(k => textContent.includes(k))) { continue; }
+                } else {
+                    if (config.ids.length > 0 && config.ids.includes(tweetId)) { continue; }
+                    if (config.keywords.some(k => textContent.includes(k))) { continue; }
+                    if (config.minLikes > 0 && currentLikes >= config.minLikes) { continue; }
+                }
+
+                const isRepost = textContent.includes('さんがリポスト') || !!article.querySelector('div[data-testid="unretweet"]');
+
+                if (isRepost && config.reposts) {
+                    const unretweetBtn = article.querySelector('div[data-testid="unretweet"]');
+                    if (unretweetBtn) {
+                        unretweetBtn.click();
+                        await sleep(getRandomDelay(500, 1000));
+                        const confirmBtn = document.querySelector('div[data-testid="unretweetConfirm"]');
+                        if (confirmBtn) { confirmBtn.click(); }
+                        actionCount++;
+                        processedInLoop = true;
+                        updateUI('RTを取り消しました。');
+                        await sleep(getRandomDelay(2000, 8000));
+                        break;
+                    }
+                }
+
+                const unlikeBtn = article.querySelector('div[data-testid="unlike"]');
+                if (unlikeBtn && config.likes && !isRepost) {
+                    unlikeBtn.click();
+                    actionCount++;
+                    processedInLoop = true;
+                    updateUI('お気に入りを解除しました。');
+                    await sleep(getRandomDelay(2000, 8000));
+                    break;
+                }
+
+                const caretBtn = article.querySelector('button[data-testid="caret"]');
+                if (caretBtn && config.posts && !isRepost && !unlikeBtn) {
+                    caretBtn.click();
+                    await sleep(getRandomDelay(700, 1300));
+                    const deleteMenu = Array.from(document.querySelectorAll('div[role="menuitem"]')).find(el => el.textContent.includes('削除') || el.textContent.includes('Delete'));
+                    if (deleteMenu) {
+                        deleteMenu.click();
+                        await sleep(getRandomDelay(700, 1300));
+                        const confirmDelete = document.querySelector('button[data-testid="confirmationSheetConfirm"]');
+                        if (confirmDelete) {
+                            confirmDelete.click();
+                            actionCount++;
+                            processedInLoop = true;
+                            updateUI('ツイートを削除しました。');
+                            await sleep(getRandomDelay(2000, 8000));
+                            break;
+                        }
+                    } else {
+                        document.body.click();
+                        await sleep(getRandomDelay(500, 1000));
+                    }
+                }
+            }
+
+            if (!processedInLoop && !isAborted) {
+                window.scrollBy({ top: getRandomDelay(300, 600), behavior: 'smooth' });
+                await sleep(getRandomDelay(2000, 4000));
+            }
+        }
+
+        releaseWakeLock();
+        updateUI(`処理が完了しました。\n削除件数：${actionCount} 件\nお疲れ様でした。`);
+        document.getElementById('btn-abort').innerText = '閉じる(X)';
+        document.getElementById('btn-abort').style.cssText = 'background:#d4d0c8;border:2px solid;border-color:#ffffff #808080 #808080 #ffffff;color:#000;font-family:"MS UI Gothic",sans-serif;font-size:12px;padding:4px 14px;cursor:pointer;min-width:85px;';
+        document.getElementById('btn-abort').onclick = () => { shield.remove(); style.remove(); };
+    }
+})();
